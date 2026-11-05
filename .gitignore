@@ -9,3 +9,5 @@ work/
 fixture-*/
 diagnostics/SpotiRoute-Diagnostics.json
 diagnostics/temp-*/
+desktop-diagnostics/SpotiRoute-Desktop-Diagnostics.json
+desktop-diagnostics/temp-*/
