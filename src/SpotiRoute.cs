@@ -16,8 +16,8 @@ using System.Windows.Forms;
 [assembly: AssemblyDescription("Spotify network route maintenance")]
 [assembly: AssemblyCompany("SpotiRoute contributors")]
 [assembly: AssemblyProduct("SpotiRoute")]
-[assembly: AssemblyVersion("0.1.0.0")]
-[assembly: AssemblyFileVersion("0.1.0.0")]
+[assembly: AssemblyVersion("0.1.1.0")]
+[assembly: AssemblyFileVersion("0.1.1.0")]
 
 namespace SpotiRoute {
     internal static class Program {
@@ -35,7 +35,7 @@ namespace SpotiRoute {
                     var report = new Dictionary<string,object>();
                     VerifyPayload();
                     report["success"] = true;
-                    report["version"] = "0.1.0";
+                    report["version"] = "0.1.1";
                     report["embedded_files"] = PayloadNames;
                     report["payload_verified"] = true;
                     report["installed"] = File.Exists(Path.Combine(Root,"owner.json"));
@@ -148,7 +148,7 @@ namespace SpotiRoute {
                 foreach(var name in PayloadNames) File.WriteAllBytes(Path.Combine(stage,name),Resource(name));
                 int code=RunPowerShell(Path.Combine(stage,"Install-SpotifyGuard.ps1"),"-PackageRoot \""+stage+"\"");
                 var result=ReadJson(Path.Combine(stage,"installation.json"));
-                if(code!=0 || !Bool(result,"Success")) throw new InvalidOperationException("Установка не завершена. "+Text(result,"Error"));
+                if(code!=0 || !Bool(result,"Success")) throw new InvalidOperationException("Установка не завершена. "+Text(result,"Error")+"\n\nКнопка «Открыть журнал» покажет сохранённый отчёт установки.");
                 File.Copy(Path.Combine(stage,"installation.json"),Path.Combine(Root,@"data\setup-result.json"),true);
                 return 0;
             } finally {
@@ -240,7 +240,7 @@ namespace SpotiRoute {
             var uninstall=ButtonAt("Удалить задачу",509,457,171,false);
             uninstall.Click+=(s,e)=>{if(MessageBox.Show(this,"Удалить фоновую задачу? Текущие адреса и резервные копии сохранятся.","SpotiRoute",MessageBoxButtons.YesNo,MessageBoxIcon.Question)==DialogResult.Yes)DoAction("Uninstall");};
             notice=LabelAt("При изменении системных настроек Windows может запросить права администратора.",26,519,748,38,9,FontStyle.Regular);notice.ForeColor=Muted;
-            LabelAt("0.1.0 beta",687,466,88,22,9,FontStyle.Regular).ForeColor=Muted;
+            LabelAt("0.1.1 beta",687,466,88,22,9,FontStyle.Regular).ForeColor=Muted;
             timer.Interval=3000;timer.Tick+=(s,e)=>RefreshState();timer.Start();
             Shown+=(s,e)=>RefreshState();
         }
@@ -306,6 +306,8 @@ namespace SpotiRoute {
         }
         private void OpenLog() {
             string file=Path.Combine(Program.Root,@"data\events.jsonl");
+            if(!componentInstalled && File.Exists(Path.Combine(Program.Root,@"data\setup-result.json")))file=Path.Combine(Program.Root,@"data\setup-result.json");
+            else if(!File.Exists(file) && File.Exists(Path.Combine(Program.Root,@"data\bootstrap\status.json")))file=Path.Combine(Program.Root,@"data\bootstrap\status.json");
             if(File.Exists(file))Process.Start(new ProcessStartInfo("notepad.exe","\""+file+"\""){UseShellExecute=true});
             else MessageBox.Show(this,"Журнал появится после установки и первой проверки.","SpotiRoute");
         }

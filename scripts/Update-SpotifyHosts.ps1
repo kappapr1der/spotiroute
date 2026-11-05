@@ -24,6 +24,8 @@ $statusPath=Join-Path $DataRoot 'status.json'
 $logPath=Join-Path $DataRoot 'events.jsonl'
 $lockPath=Join-Path $DataRoot 'run.lock'
 $lock=$null;$state=$null
+$checks=@{};$healthy=@{}
+$candidateChecks=New-Object 'System.Collections.Generic.List[object]'
 $status=@{Schema=1;StartedUtc=[DateTime]::UtcNow.ToString('o');Mode=if($Apply){'apply'}else{'check'};Changed=$false;Healthy=$false;Error=$null}
 try {
     try {$lock=[IO.File]::Open($lockPath,[IO.FileMode]::OpenOrCreate,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)}
@@ -33,6 +35,12 @@ try {
         if(-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){throw 'Apply requires administrator rights'}
         if([IO.Path]::GetFullPath($hostPath) -ne 'C:\Windows\System32\drivers\etc\hosts'){throw 'Unexpected live hosts path'}
     }
+    if(-not [IO.File]::Exists($script:CurlPath)){throw 'System curl.exe is missing; update Windows.'}
+    $curlBanner=@(& $script:CurlPath --version)
+    if($LASTEXITCODE -ne 0 -or $curlBanner.Count -eq 0){throw 'Cannot determine system curl version.'}
+    $status.CurlVersion=Assert-GuardCurlVersion ([string]$curlBanner[0])
+    $fallback=if($config.ContainsKey('FallbackMapping')){$config.FallbackMapping}else{$config.InitialMapping}
+    Assert-GuardMapping $fallback
     $state=Read-GuardJson $statePath
     if(-not $state){
         $state=@{Schema=1;Mapping=$config.InitialMapping.Clone();Failures=@{};Candidates=@{};OriginAddresses=@($config.OriginAddresses);LastDiscoveryAttemptUtc='';LastResult='';LastSignature=''}
@@ -41,7 +49,8 @@ try {
     $before=[IO.File]::ReadAllBytes($hostPath)
     $text=$script:ByteEncoding.GetString($before)
     $beforeHash=Get-GuardHash $before
-    $checks=@{};$healthy=@{}
+    $status.HealthBefore=$checks
+    $status.CandidateChecks=$candidateChecks
     foreach($domain in $script:GuardDomains){
         $check=Test-GuardRoute -Domain $domain -Address ([string]$state.Mapping[$domain])
         $checks[$domain]=$check;$healthy[$domain]=[bool]$check.Ok
@@ -61,13 +70,13 @@ try {
         if($due -or (-not $healthy[$domain] -and ($failures+1 -ge [int]$config.FailureThreshold))){
             $fresh=@(Get-GuardDohCandidates -Domain $domain)
             $cached=if($state.Candidates.ContainsKey($domain)){@($state.Candidates[$domain])}else{@()}
-            $state.Candidates[$domain]=@(($fresh+$cached) | Where-Object {Test-GuardPublicIPv4 $_} | Select-Object -Unique | Select-Object -First 12)
+            $state.Candidates[$domain]=@(Merge-GuardCandidates -Fresh $fresh -Cached $cached -Fallback ([string]$fallback[$domain]))
         }
     }
     if($needGateway){
         $fresh=@(Get-GuardGatewayCandidates)
         $cached=if($state.Candidates.ContainsKey('gateway')){@($state.Candidates.gateway)}else{@()}
-        $state.Candidates.gateway=@(($fresh+$cached) | Where-Object {Test-GuardPublicIPv4 $_} | Select-Object -Unique | Select-Object -First 6)
+        $state.Candidates.gateway=@(Merge-GuardCandidates -Fresh $fresh -Cached $cached -Fallback ([string]$fallback['api.spotify.com']) -Limit 6)
         # Ordinary origin addresses must not become relay replacements.
         try{
             $r=Invoke-GuardRequest -Url 'https://cloudflare-dns.com/dns-query?name=api.spotify.com&type=A' -MaxBytes 65536 -Timeout 4
@@ -83,14 +92,14 @@ try {
     foreach($domain in @('i.scdn.co','image-cdn-ak.spotifycdn.com')){
         $failureCount=if($state.Failures.ContainsKey($domain)){[int]$state.Failures[$domain]}else{0}
         $candidates=if($state.Candidates.ContainsKey($domain)){@($state.Candidates[$domain])}else{@()}
-        $validate={param($candidate) return [bool](Test-GuardRoute -Domain $domain -Address $candidate -Thorough).Ok}
+        $validate={param($candidate) $probe=Test-GuardRoute -Domain $domain -Address $candidate -Thorough;[void]$candidateChecks.Add($probe);return [bool]$probe.Ok}
         $decision=Select-GuardReplacement -Current ([string]$state.Mapping[$domain]) -Healthy $healthy[$domain] -FailureCount $failureCount -Candidates $candidates -Validate $validate -Threshold ([int]$config.FailureThreshold)
         $decisions[$domain]=$decision
         $state.Failures[$domain]=[int]$decision.Failures
         if($decision.Changed){$proposed[$domain]=$decision.Address;$healthy[$domain]=$true}
     }
     $gatewayCandidates=if($state.Candidates.ContainsKey('gateway')){@($state.Candidates.gateway | Where-Object {$_ -notin @($state.OriginAddresses)})}else{@()}
-    $validateGateway={param($candidate) return [bool](Test-GuardGateway -Address $candidate).Ok}
+    $validateGateway={param($candidate) $probe=Test-GuardGateway -Address $candidate;[void]$candidateChecks.Add($probe);return [bool]$probe.Ok}
     $gatewayDecision=Select-GuardReplacement -Current ([string]$state.Mapping['api.spotify.com']) -Healthy $gatewayOk -FailureCount $groupFailures -Candidates $gatewayCandidates -Validate $validateGateway -Threshold ([int]$config.FailureThreshold)
     $decisions.gateway=$gatewayDecision
     $state.Failures.gateway=[int]$gatewayDecision.Failures
@@ -132,6 +141,7 @@ try {
     $status.Result='error_no_unverified_replacement'
 } finally {
     if($lock){
+        $status.FailedDomains=@($script:GuardDomains | Where-Object {-not $healthy.ContainsKey($_) -or -not $healthy[$_]})
         $status.FinishedUtc=[DateTime]::UtcNow.ToString('o')
         $status.DurationSeconds=[Math]::Round($script:RunClock.Elapsed.TotalSeconds,3)
         try {

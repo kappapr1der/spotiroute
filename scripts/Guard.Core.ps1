@@ -166,6 +166,38 @@ function Get-GuardRemainingSeconds {
     if($left -lt 1){throw 'Run time budget exhausted'}
     return $left
 }
+function Merge-GuardCandidates {
+    param([string[]]$Fresh,[string[]]$Cached,[string]$Fallback,[int]$Limit=12)
+    # A hosts entry may replace InitialMapping during setup. Keep the packaged
+    # fallback available even when all DNS answers are unreachable on this network.
+    return @((@($Fallback)+@($Fresh)+@($Cached)) | Where-Object {Test-GuardPublicIPv4 $_} | Select-Object -Unique | Select-Object -First $Limit)
+}
+function Assert-GuardCurlVersion {
+    param([string]$Banner)
+    if($Banner -notmatch '^curl (\d+\.\d+\.\d+)\b' -or [version]$Matches[1] -lt [version]'7.70.0'){
+        throw 'System curl 7.70 or newer is required for JSON diagnostics. Update Windows; hosts was not changed.'
+    }
+    return $Matches[1]
+}
+function Get-GuardBootstrapFailure {
+    param($Status)
+    $details=@()
+    if($Status -and $Status.ContainsKey('HealthBefore')){
+        foreach($domain in $script:GuardDomains){
+            if($Status.ContainsKey('FailedDomains') -and $domain -notin @($Status.FailedDomains)){continue}
+            if(-not $Status.HealthBefore.ContainsKey($domain)){continue}
+            $probe=$Status.HealthBefore[$domain]
+            if(-not $probe.Ok){
+                $http=if($probe.ContainsKey('Http')){[string]$probe.Http}else{'unknown'}
+                $details+=($domain+' (HTTP '+$http+'; '+[string]$probe.Reason+')')
+            }
+        }
+    }
+    $message='No verified complete route set'
+    if($details.Count){$message+=': '+[string]::Join(', ',[string[]]$details)}
+    if($Status -and $Status.ContainsKey('Error') -and $Status.Error){$message+='. '+[string]$Status.Error}
+    return $message+'. Live hosts was not changed. Details: C:\ProgramData\SpotifyNetworkGuard\data\setup-result.json'
+}
 function Invoke-GuardRequest {
     param([string]$Url,[string]$Domain='',[string]$Address='',[int]$MaxBytes=524288,[int]$Timeout=5,[string]$Accept='*/*')
     if($Url -notmatch '^https://'){throw 'Only HTTPS requests are allowed'}

@@ -4,6 +4,7 @@ $ErrorActionPreference='Stop'
 $install='C:\ProgramData\SpotifyNetworkGuard'
 $taskName='Spotify Network Guard'
 $report=@{Success=$false;StartedUtc=[DateTime]::UtcNow.ToString('o');Error=$null;TaskRegistered=$false}
+$reportRootReady=$false
 try {
     $principal=New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
     if(-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){throw 'Installation requires administrator rights'}
@@ -41,6 +42,7 @@ try {
     $originalText=$script:ByteEncoding.GetString($before)
     $observed=Get-GuardObservedMapping $originalText
     $config=Read-GuardJson (Join-Path $PackageRoot 'config.json')
+    if(-not $config.ContainsKey('FallbackMapping')){$config.FallbackMapping=$config.InitialMapping.Clone()}
     $mapping=$config.InitialMapping.Clone()
     foreach($domain in @('i.scdn.co','image-cdn-ak.spotifycdn.com')){
         if($observed.ContainsKey($domain)){$mapping[$domain]=$observed[$domain]}
@@ -69,6 +71,7 @@ try {
     [void][IO.Directory]::CreateDirectory($data)
     [void][IO.Directory]::CreateDirectory((Join-Path $data 'backups'))
     [void][IO.Directory]::CreateDirectory((Join-Path $data 'temp'))
+    $reportRootReady=$true
     Write-GuardJson -Path (Join-Path $install 'owner.json') -Value @{Product='SpotifyNetworkGuard';Schema=1;InstallationComplete=$false;InstalledUtc=[DateTime]::UtcNow.ToString('o');Hashes=$manifest.Hashes}
     if(-not [IO.File]::Exists((Join-Path $data 'preinstall-hosts.bak'))){[IO.File]::WriteAllBytes((Join-Path $data 'preinstall-hosts.bak'),$before)}
 
@@ -81,9 +84,10 @@ try {
     $bootstrap=Join-Path $data 'bootstrap'
     [void][IO.Directory]::CreateDirectory($bootstrap)
     & $native -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File (Join-Path $install 'Update-SpotifyHosts.ps1') -ForceDiscovery -DataRoot $bootstrap | Out-File -LiteralPath (Join-Path $data 'bootstrap-run.json') -Encoding utf8
-    if($LASTEXITCODE -ne 0){throw 'Bootstrap discovery failed; live hosts was not changed'}
+    $bootstrapExit=$LASTEXITCODE
     $checked=Read-GuardJson (Join-Path $bootstrap 'status.json')
-    if(-not $checked.Healthy -or $checked.Error){throw 'No verified complete route set; live hosts was not changed'}
+    $report.Bootstrap=$checked
+    if($bootstrapExit -ne 0 -or -not $checked -or -not $checked.Healthy -or $checked.Error){throw (Get-GuardBootstrapFailure $checked)}
     $config.InitialMapping=$checked.Mapping
     $config.FailureThreshold=2
     Write-GuardJson -Path (Join-Path $install 'config.json') -Value $config
@@ -130,6 +134,7 @@ try {
     if($report.TaskRegistered){try{Disable-ScheduledTask -TaskName $taskName -ErrorAction Stop | Out-Null}catch{}}
 } finally {
     $report.FinishedUtc=[DateTime]::UtcNow.ToString('o')
+    if($reportRootReady){try{Write-GuardJson -Path (Join-Path $data 'setup-result.json') -Value $report}catch{}}
     $report | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath (Join-Path $PackageRoot 'installation.json') -Encoding utf8
 }
 if(-not $report.Success){exit 1}

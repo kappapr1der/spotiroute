@@ -43,7 +43,7 @@ jobs:
           name: SpotiRoute-windows
           path: |
             dist/SpotiRoute.exe
-            dist/SpotiRoute-0.1.0-win.zip
+            dist/SpotiRoute-*-win.zip
             dist/SHA256SUMS.txt
           if-no-files-found: error
 
@@ -69,5 +69,6 @@ jobs:
           gh run download $env:RUN_ID --name SpotiRoute-windows --dir release-files
           if ($LASTEXITCODE -ne 0) { throw 'Artifact download failed' }
           $notes = 'docs/release-' + $env:RELEASE_TAG + '.md'
-          gh release create $env:RELEASE_TAG release-files/SpotiRoute.exe release-files/SpotiRoute-0.1.0-win.zip release-files/SHA256SUMS.txt --verify-tag --prerelease --title ('SpotiRoute ' + $env:RELEASE_TAG + ' beta') --notes-file $notes
+          $zip = 'release-files/SpotiRoute-' + $env:RELEASE_TAG.TrimStart('v') + '-win.zip'
+          gh release create $env:RELEASE_TAG release-files/SpotiRoute.exe $zip release-files/SHA256SUMS.txt --verify-tag --prerelease --title ('SpotiRoute ' + $env:RELEASE_TAG + ' beta') --notes-file $notes
           if ($LASTEXITCODE -ne 0) { throw 'Release publishing failed' }

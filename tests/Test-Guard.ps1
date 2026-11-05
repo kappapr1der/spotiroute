@@ -76,4 +76,26 @@ Assert-Case ((Get-GuardUnrelatedSignature $restored) -ceq (Get-GuardUnrelatedSig
 $restored=Restore-GuardScopedHostsText -CurrentText $rendered -OriginalText $inputText -SafeMapping $map
 Assert-Case (@(Get-GuardHostRows $restored | Where-Object {$_.Domain -in $script:GuardDomains}).Count -eq 1) 'restore retains only originally present routes'
 
+$merged=@(Merge-GuardCandidates -Fresh @('143.20.64.192') -Cached @('143.20.64.192') -Fallback '199.232.210.250')
+Assert-Case ($merged.Count -eq 2 -and $merged[0] -eq '199.232.210.250') 'packaged fallback survives stale hosts and unreachable DNS answers'
+$decision=Select-GuardReplacement -Current '143.20.64.192' -Healthy $false -FailureCount 0 -Threshold 1 -Candidates $merged -Validate {param($candidate) $candidate -eq '199.232.210.250'}
+Assert-Case ($decision.Changed -and $decision.Address -eq '199.232.210.250') 'fresh setup can recover an adopted unreachable hosts address'
+$decision=Select-GuardReplacement -Current '143.20.64.192' -Healthy $false -FailureCount 0 -Threshold 1 -Candidates $merged -Validate {$false}
+Assert-Case (-not $decision.Changed -and $decision.Address -eq '143.20.64.192') 'packaged fallback still requires successful validation'
+$merged=@(Merge-GuardCandidates -Fresh @() -Cached @() -Fallback '199.232.210.250')
+Assert-Case ($merged.Count -eq 1 -and $merged[0] -eq '199.232.210.250') 'DNS outage retains a packaged candidate'
+$merged=@(Merge-GuardCandidates -Fresh @('8.8.8.8','9.9.9.9','127.0.0.1') -Cached @('8.8.8.8') -Fallback '199.232.210.250' -Limit 2)
+Assert-Case ($merged.Count -eq 2 -and $merged[0] -eq '199.232.210.250') 'candidate limit cannot discard packaged fallback'
+Assert-Case (@(Merge-GuardCandidates -Fresh @('127.0.0.1') -Cached @() -Fallback '10.0.0.1').Count -eq 0) 'private fallback and DNS answers are rejected'
+Assert-Case ((Assert-GuardCurlVersion 'curl 8.21.0 (Windows) libcurl/8.21.0 Schannel') -eq '8.21.0') 'supported native curl accepted'
+Assert-Throws {Assert-GuardCurlVersion 'curl 7.55.1 (Windows)'} 'curl without JSON support fails before network probes'
+Assert-Throws {Assert-GuardCurlVersion 'not a curl banner'} 'unknown curl version fails explicitly'
+$failed=@{Healthy=$false;FailedDomains=@('i.scdn.co');Error=$null;HealthBefore=@{'i.scdn.co'=@{Ok=$false;Http=0;Reason='artwork_probe_failed'};'api.spotify.com'=@{Ok=$true;Http=401;Reason='spotify_endpoint_reachable'}}}
+$explanation=Get-GuardBootstrapFailure $failed
+Assert-Case ($explanation.Contains('i.scdn.co (HTTP 0; artwork_probe_failed)') -and $explanation.Contains('setup-result.json')) 'bootstrap failure names failed endpoint and persistent report'
+Assert-Case (-not $explanation.Contains('api.spotify.com')) 'healthy endpoints are not blamed by setup diagnostics'
+$explanation=Get-GuardBootstrapFailure @{Error='Run time budget exhausted';HealthBefore=@{}}
+Assert-Case ($explanation.Contains('Run time budget exhausted')) 'early discovery error survives the setup message'
+Assert-Case ((Get-GuardBootstrapFailure $null).Contains('Live hosts was not changed')) 'missing probe report has a safe failure explanation'
+
 Write-Output ('ALL PASSED: '+$script:Passed)
