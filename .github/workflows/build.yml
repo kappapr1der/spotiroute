@@ -1,0 +1,73 @@
+name: Build and release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2025
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Parse PowerShell sources
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Get-ChildItem -Path scripts,tests -Filter *.ps1 -Recurse | ForEach-Object {
+            $tokens = $null; $parseErrors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($_.FullName,[ref]$tokens,[ref]$parseErrors)
+            if ($parseErrors.Count) { throw ($parseErrors | Out-String) }
+          }
+      - name: Test route selection and hosts handling
+        run: .\tests\Test-Guard.ps1 -PackageRoot .\scripts
+      - name: Build executable
+        run: .\build.ps1
+      - name: Verify embedded payload
+        run: |
+          $p = Start-Process .\artifacts\SpotiRoute.exe -ArgumentList '--self-test artifacts\self-test.json' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw 'Executable self-test failed' }
+          if (-not (Get-Content artifacts\self-test.json -Raw | ConvertFrom-Json).success) { throw 'Payload verification failed' }
+      - name: Package
+        run: .\package.ps1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: SpotiRoute-windows
+          path: |
+            dist/SpotiRoute.exe
+            dist/SpotiRoute-0.1.0-win.zip
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: windows-2025
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Publish beta release
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          gh run download $env:RUN_ID --name SpotiRoute-windows --dir release-files
+          if ($LASTEXITCODE -ne 0) { throw 'Artifact download failed' }
+          $notes = 'docs/release-' + $env:RELEASE_TAG + '.md'
+          gh release create $env:RELEASE_TAG release-files/SpotiRoute.exe release-files/SpotiRoute-0.1.0-win.zip release-files/SHA256SUMS.txt --verify-tag --prerelease --title ('SpotiRoute ' + $env:RELEASE_TAG + ' beta') --notes-file $notes
+          if ($LASTEXITCODE -ne 0) { throw 'Release publishing failed' }

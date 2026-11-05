@@ -1,0 +1,21 @@
+{
+  "Schema": 1,
+  "MaxRunSeconds": 100,
+  "DiscoveryMinutes": 30,
+  "FailureThreshold": 2,
+  "InitialMapping": {
+    "i.scdn.co": "199.232.210.250",
+    "image-cdn-ak.spotifycdn.com": "23.215.2.166",
+    "api.spotify.com": "217.60.179.6",
+    "dealer.spotify.com": "217.60.179.6",
+    "spclient.wg.spotify.com": "217.60.179.6",
+    "gew1-spclient.spotify.com": "217.60.179.6",
+    "gew1-dealer.spotify.com": "217.60.179.6"
+  },
+  "OriginAddresses": [
+    "35.186.224.24",
+    "35.186.224.26",
+    "35.186.224.33",
+    "35.186.224.39"
+  ]
+}

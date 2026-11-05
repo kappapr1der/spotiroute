@@ -1,0 +1,9 @@
+artifacts/
+dist/
+data/
+work/
+*.bak
+*.log
+*.previous
+*.pre-autoupdate
+fixture-*/
