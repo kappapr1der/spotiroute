@@ -22,7 +22,7 @@ jobs:
       - name: Parse PowerShell sources
         run: |
           $ErrorActionPreference = 'Stop'
-          Get-ChildItem -Path scripts,tests -Filter *.ps1 -Recurse | ForEach-Object {
+          Get-ChildItem -Path scripts,tests,diagnostics -Filter *.ps1 -Recurse | ForEach-Object {
             $tokens = $null; $parseErrors = $null
             [void][System.Management.Automation.Language.Parser]::ParseFile($_.FullName,[ref]$tokens,[ref]$parseErrors)
             if ($parseErrors.Count) { throw ($parseErrors | Out-String) }
