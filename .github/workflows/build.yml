@@ -22,7 +22,7 @@ jobs:
       - name: Parse PowerShell sources
         run: |
           $ErrorActionPreference = 'Stop'
-          Get-ChildItem -Path scripts,tests,diagnostics,desktop-diagnostics -Filter *.ps1 -Recurse | ForEach-Object {
+          Get-ChildItem -Path scripts,tests,diagnostics,desktop-diagnostics,accesspoint-diagnostics -Filter *.ps1 -Recurse | ForEach-Object {
             $tokens = $null; $parseErrors = $null
             [void][System.Management.Automation.Language.Parser]::ParseFile($_.FullName,[ref]$tokens,[ref]$parseErrors)
             if ($parseErrors.Count) { throw ($parseErrors | Out-String) }
@@ -31,6 +31,8 @@ jobs:
         run: .\tests\Test-Guard.ps1 -PackageRoot .\scripts
       - name: Check desktop diagnostics privacy
         run: .\desktop-diagnostics\Collect-Desktop-Diagnostics.ps1 -SelfTest -OutputPath (Join-Path $env:RUNNER_TEMP 'spotify-proxy-summary-test.json')
+      - name: Check access point protocol validation
+        run: .\accesspoint-diagnostics\Collect-AccessPoint-Diagnostics.ps1 -SelfTest -OutputPath (Join-Path $env:RUNNER_TEMP 'spotify-ap-protocol-test.json')
       - name: Build executable
         run: .\build.ps1
       - name: Verify embedded payload

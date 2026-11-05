@@ -11,3 +11,6 @@ diagnostics/SpotiRoute-Diagnostics.json
 diagnostics/temp-*/
 desktop-diagnostics/SpotiRoute-Desktop-Diagnostics.json
 desktop-diagnostics/temp-*/
+
+accesspoint-diagnostics/SpotiRoute-AccessPoint-Diagnostics.json
+accesspoint-diagnostics/resolver-*.tmp
